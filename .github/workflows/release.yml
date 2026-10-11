@@ -1,0 +1,61 @@
+name: Build Blade (mod jars and Windows installer)
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mod:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ['1.21.11', '1.21.4', '1.21.1']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14
+      - name: Build the mod
+        working-directory: mod
+        run: gradle build -Pmc=${{ matrix.mc }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: blade-client-${{ matrix.mc }}
+          path: mod/build/libs/*+${{ matrix.mc }}.jar
+
+  installer:
+    needs: mod
+    if: ${{ !cancelled() }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: blade-client-*
+          merge-multiple: true
+          path: bundled
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm install
+      - name: Build the installer
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Blade-Client-Setup
+          path: dist/Blade-Client-Setup.exe
+      - name: Publish a release (only when you push a tag like v1.0.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Blade-Client-Setup.exe
